@@ -141,6 +141,7 @@ def load_due_data():
         return pd.read_csv(pd.io.common.StringIO(content))
     return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Due Amount"])
 
+@st.cache_data
 def load_debit_data():
     """Loads debit log data from Dropbox."""
     total_debit = 0
