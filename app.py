@@ -29,8 +29,8 @@ ZONE_BILL_RANGES = {
 }
 
 # --- Passwords ---
-STARTUP_PASSWORD = "start" 
-ADMIN_PASSWORD = "puja2025"
+STARTUP_PASSWORD = st.secrets["STARTUP_PASSWORD"]
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 # --- Dropbox File Operations ---
 
