@@ -198,7 +198,7 @@ def main():
         st.info("Please enter the password to connect to the database and start the application.")
         with st.form("startup_form"):
             password = st.text_input("Startup Password", type="password")
-            if st.form_submit_button("Login"):
+            if st.form_submit_button("Connect"):
                 if password == STARTUP_PASSWORD:
                     st.session_state["startup_auth_success"] = True
                     st.rerun()
