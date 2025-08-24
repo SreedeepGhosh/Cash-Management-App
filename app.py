@@ -19,18 +19,51 @@ DROPBOX_DEBIT_LOG_PATH = f"/{DEBIT_LOG_FILENAME}"
 DROPBOX_DUE_LIST_PATH = f"/{DUE_LIST_FILENAME}"
 DROPBOX_DUE_COLLECTION_PATH = f"/{DUE_COLLECTION_FILENAME}" # New Dropbox path
 
-ZONES = ["zone1", "zone2", "zone3", "zone4", "zone5", "donation"]
+ZONES = [
+    "BILL no. 1- (1-100)",
+    "BILL no. 2- (101-200)",
+    "BILL no. 3- (201-300)",
+    "BILL no. 4- (301-400)",
+    "BILL no. 5- (401-500)",
+    "BILL no. 6- (501-550)",
+    "BILL no. 7- (551-600)",
+    "BILL no. 8- (601-650)",
+    "BILL no. 9- (651-700)",
+    "BILL no. 10- (701-750)",
+    "BILL no. 11- (751-800)",
+    "BILL no. 12- (801-850)",
+    "BILL no. 13- (851-875)",
+    "BILL no. 14- (876-900)",
+    "BILL no. 15- (901-925)",
+    "BILL no. 16- (926-950)",
+    "BILL no. 17- (951-975)",
+    "BILL no. 18- (976-1000)",
+    "donation"
+]
 ZONE_BILL_RANGES = {
-    "zone1": (1, 100),
-    "zone2": (101, 200),
-    "zone3": (201, 300),
-    "zone4": (301, 400),
-    "zone5": (401, 500)
+    "BILL no. 1- (1-100)": (1, 100),
+    "BILL no. 2- (101-200)": (101, 200),
+    "BILL no. 3- (201-300)": (201, 300),
+    "BILL no. 4- (301-400)": (301, 400),
+    "BILL no. 5- (401-500)": (401, 500),
+    "BILL no. 6- (501-550)": (501, 550),
+    "BILL no. 7- (551-600)": (551, 600),
+    "BILL no. 8- (601-650)": (601, 650),
+    "BILL no. 9- (651-700)": (651, 700),
+    "BILL no. 10- (701-750)": (701, 750),
+    "BILL no. 11- (751-800)": (751, 800),
+    "BILL no. 12- (801-850)": (801, 850),
+    "BILL no. 13- (851-875)": (851, 875),
+    "BILL no. 14- (876-900)": (876, 900),
+    "BILL no. 15- (901-925)": (901, 925),
+    "BILL no. 16- (926-950)": (926, 950),
+    "BILL no. 17- (951-975)": (951, 975),
+    "BILL no. 18- (976-1000)": (976, 1000)
 }
 
 # --- Passwords ---
-STARTUP_PASSWORD = st.secrets["STARTUP_PASSWORD"]
-ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+STARTUP_PASSWORD = "start" 
+ADMIN_PASSWORD = "puja2025"
 
 # --- Dropbox File Operations ---
 
@@ -198,7 +231,7 @@ def main():
         st.info("Please enter the password to connect to the database and start the application.")
         with st.form("startup_form"):
             password = st.text_input("Startup Password", type="password")
-            if st.form_submit_button("Connect"):
+            if st.form_submit_button("Login"):
                 if password == STARTUP_PASSWORD:
                     st.session_state["startup_auth_success"] = True
                     st.rerun()
