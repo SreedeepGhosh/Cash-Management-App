@@ -6,7 +6,7 @@ import dropbox
 from io import StringIO
 
 # --- App Configuration ---
-st.set_page_config(layout="wide", page_title="RKSC 2025 DURGA PUJA")
+st.set_page_config(layout="wide", page_title="RKSC DURGA PUJA 2025")
 
 # --- File Paths and Constants ---
 CREDIT_LOG_FILENAME = "credit_log.csv"
@@ -155,7 +155,7 @@ def get_next_bill_no(zone, current_credit_df):
     zone_transactions = current_credit_df[current_credit_df["Zone"] == zone]
     if zone_transactions.empty:
         return start
-    used_bill_nos = set(zone_transactions["Bill No"].astype(int).tolist())
+    used_bill_nos = set(zone_transactions["Bill No"].dropna().astype(int).tolist())
     for i in range(start, end + 1):
         if i not in used_bill_nos:
             return i
@@ -189,8 +189,7 @@ def sync_to_dropbox(dbx):
         due_df_to_save = st.session_state.due_df.copy()
         due_collection_df_to_save = st.session_state.due_collection_df.copy()
 
-        # FIX: Use nullable integer type 'Int64' which supports NA values.
-        # This prevents the IntCastingNaNError.
+        # Use nullable integer type 'Int64' which supports NA values.
         if not credit_df_to_save.empty:
             credit_df_to_save['Bill No'] = credit_df_to_save['Bill No'].astype('Int64')
         if not due_df_to_save.empty:
@@ -200,7 +199,8 @@ def sync_to_dropbox(dbx):
 
         # Sync files one by one and stop if any fails
         if not write_file_to_dropbox(dbx, DROPBOX_CREDIT_LOG_PATH, credit_df_to_save.sort_values(by=["Zone", "Bill No"]).to_csv(index=False)): return
-        if not write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, due_df_to_save.to_csv(index=False)): return
+        # NEW: Sort the due list by Bill No before saving
+        if not write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, due_df_to_save.sort_values(by="Bill No").to_csv(index=False)): return
         if not write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, due_collection_df_to_save.to_csv(index=False)): return
         if not write_file_to_dropbox(dbx, DROPBOX_DEBIT_LOG_PATH, st.session_state.debit_log_content): return
 
@@ -332,12 +332,19 @@ def main():
                     st.dataframe(zone_data.sort_values(by="Bill No"), use_container_width=True)
                 else:
                     st.info("No transactions yet for this zone.")
+            
+            # NEW FEATURE
+            if st.button("Show All Credit Bills"):
+                if not credit_df.empty:
+                    st.dataframe(credit_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
+                else:
+                    st.info("No credit bills have been recorded yet.")
 
         with due_tab:
             st.header("Due Management")
             st.subheader("💸 Update Due List")
             zone_dues = due_df[(due_df["Zone"] == selected_zone)]
-            bill_options = zone_dues["Bill No"].astype(int).tolist()
+            bill_options = zone_dues["Bill No"].dropna().astype(int).tolist()
 
             if bill_options:
                 selected_bill = st.selectbox("Due Bill No", options=bill_options)
@@ -413,11 +420,18 @@ def main():
                 if not filtered_collections.empty:
                     st.dataframe(filtered_collections.sort_values(by="Payment Date", ascending=False), use_container_width=True)
                 else: st.info("No collection history yet for this zone.")
+            
+            # NEW FEATURE
+            if st.button("Show All Due Bills"):
+                if not due_df.empty:
+                    st.dataframe(due_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
+                else:
+                    st.info("There are no outstanding due bills.")
 
         with update_tab:
             st.header("Update Transaction")
             zone_tx_update = credit_df[credit_df["Zone"] == selected_zone]
-            bill_list_update = zone_tx_update["Bill No"].astype(int).tolist()
+            bill_list_update = zone_tx_update["Bill No"].dropna().astype(int).tolist()
 
             if bill_list_update:
                 selected_bill_edit = st.selectbox("Select Bill to Edit", bill_list_update)
