@@ -6,7 +6,7 @@ import dropbox
 from io import StringIO
 
 # --- App Configuration ---
-st.set_page_config(layout="wide", page_title="RKSC DURGA PUJA 2025")
+st.set_page_config(layout="wide", page_title="RKSC 2025 DURGA PUJA")
 
 # --- File Paths and Constants ---
 CREDIT_LOG_FILENAME = "credit_log.csv"
@@ -47,7 +47,6 @@ ADMIN_PASSWORD = "puja2025"
 
 # --- Dropbox File Operations ---
 def dropbox_file_exists(dbx, path):
-    """Checks if a file exists on Dropbox."""
     try:
         dbx.files_get_metadata(path)
         return True
@@ -57,7 +56,6 @@ def dropbox_file_exists(dbx, path):
         raise
 
 def read_file_from_dropbox(dbx, path):
-    """Reads content of a file from Dropbox."""
     try:
         _, res = dbx.files_download(path)
         return res.content.decode('utf-8')
@@ -66,12 +64,8 @@ def read_file_from_dropbox(dbx, path):
             return None
         st.error(f"Dropbox API error reading {path}: {err}")
         return None
-    except Exception as e:
-        st.error(f"Unexpected error reading {path} from Dropbox: {e}")
-        return None
 
 def write_file_to_dropbox(dbx, path, content):
-    """Writes content to a file on Dropbox."""
     try:
         dbx.files_upload(content.encode('utf-8'), path, mode=dropbox.files.WriteMode('overwrite'))
         return True
@@ -79,9 +73,17 @@ def write_file_to_dropbox(dbx, path, content):
         st.error(f"Error writing to {path} on Dropbox: {e}")
         return False
 
-# --- Data Initialization on Dropbox ---
+def append_to_dropbox_file(dbx, path, content_to_append):
+    try:
+        existing_content = read_file_from_dropbox(dbx, path)
+        full_content = (existing_content or "") + content_to_append
+        return write_file_to_dropbox(dbx, path, full_content)
+    except Exception as e:
+        st.error(f"Error appending to {path} on Dropbox: {e}")
+        return False
+
+# --- Data Initialization ---
 def initialize_dropbox_files(dbx):
-    """Initializes all required CSV/TXT files on Dropbox if they don't exist."""
     # CREDIT_LOG
     if not dropbox_file_exists(dbx, DROPBOX_CREDIT_LOG_PATH):
         df = pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Actual Amount Received", "Date", "Due Payment Date", "Partial Due Payment Date"])
@@ -101,41 +103,31 @@ def initialize_dropbox_files(dbx):
         df = pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Total Amount Received", "Amount Paid Now", "Remaining Due", "Payment Date", "Status"])
         write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, df.to_csv(index=False))
 
-# --- Data Loading (for initial load into session state) ---
-@st.cache_data(ttl=300)
-def load_credit_data_from_dbx(_dbx):
+# --- Data Loading ---
+@st.cache_data(ttl=60)
+def load_credit_data(_dbx):
     content = read_file_from_dropbox(_dbx, DROPBOX_CREDIT_LOG_PATH)
-    if content is not None:
+    if content:
         df = pd.read_csv(StringIO(content))
         if 'Due Payment Date' not in df.columns: df['Due Payment Date'] = pd.NA
         if 'Partial Due Payment Date' not in df.columns: df['Partial Due Payment Date'] = pd.NA
         return df
     return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Actual Amount Received", "Date", "Due Payment Date", "Partial Due Payment Date"])
 
-@st.cache_data(ttl=300)
-def load_due_data_from_dbx(_dbx):
+@st.cache_data(ttl=60)
+def load_due_data(_dbx):
     content = read_file_from_dropbox(_dbx, DROPBOX_DUE_LIST_PATH)
-    if content is not None:
+    if content:
         df = pd.read_csv(StringIO(content))
         if 'Address' not in df.columns: df['Address'] = "N/A"
         return df
     return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Due Amount"])
 
-@st.cache_data(ttl=300)
-def load_debit_content_from_dbx(_dbx):
-    return read_file_from_dropbox(_dbx, DROPBOX_DEBIT_LOG_PATH) or ""
-
-@st.cache_data(ttl=300)
-def load_due_collection_data_from_dbx(_dbx):
-    content = read_file_from_dropbox(_dbx, DROPBOX_DUE_COLLECTION_PATH)
-    if content is not None:
-        return pd.read_csv(StringIO(content))
-    return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Total Amount Received", "Amount Paid Now", "Remaining Due", "Payment Date", "Status"])
-
-# --- Utility Functions ---
-def parse_debit_content(content):
+@st.cache_data(ttl=60)
+def load_debit_data(_dbx):
     total_debit = 0
     debit_entries = []
+    content = read_file_from_dropbox(_dbx, DROPBOX_DEBIT_LOG_PATH)
     if content:
         for line in content.splitlines():
             parts = line.strip().split('|')
@@ -149,6 +141,14 @@ def parse_debit_content(content):
                     st.warning(f"Skipping malformed debit log entry: {line.strip()}")
     return debit_entries, total_debit
 
+@st.cache_data(ttl=60)
+def load_due_collection_data(_dbx):
+    content = read_file_from_dropbox(_dbx, DROPBOX_DUE_COLLECTION_PATH)
+    if content:
+        return pd.read_csv(StringIO(content))
+    return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Total Amount Received", "Amount Paid Now", "Remaining Due", "Payment Date", "Status"])
+
+# --- Utility Functions ---
 def get_next_bill_no(zone, current_credit_df):
     if zone not in ZONE_BILL_RANGES: return None
     start, end = ZONE_BILL_RANGES[zone]
@@ -166,47 +166,14 @@ def display_message(type, text, duration=2):
     if type == 'success': placeholder.success(text)
     elif type == 'error': placeholder.error(text)
     elif type == 'warning': placeholder.warning(text)
+    
+    load_credit_data.clear()
+    load_debit_data.clear()
+    load_due_data.clear()
+    load_due_collection_data.clear()
+    
     time.sleep(duration)
     placeholder.empty()
-    st.rerun()
-
-# --- Session State and Sync Logic ---
-def initialize_session_state(dbx):
-    if 'data_loaded' not in st.session_state:
-        with st.spinner("Connecting to Dropbox and loading data..."):
-            st.session_state.credit_df = load_credit_data_from_dbx(dbx)
-            st.session_state.due_df = load_due_data_from_dbx(dbx)
-            st.session_state.due_collection_df = load_due_collection_data_from_dbx(dbx)
-            st.session_state.debit_log_content = load_debit_content_from_dbx(dbx)
-            st.session_state.data_loaded = True
-            st.session_state.is_dirty = False
-
-def sync_to_dropbox(dbx):
-    """Writes all data from session_state back to Dropbox, ensuring correct data types."""
-    with st.spinner("Syncing all changes to Dropbox... This may take a moment."):
-        # Create copies to safely modify dtypes before saving
-        credit_df_to_save = st.session_state.credit_df.copy()
-        due_df_to_save = st.session_state.due_df.copy()
-        due_collection_df_to_save = st.session_state.due_collection_df.copy()
-
-        # Use nullable integer type 'Int64' which supports NA values.
-        if not credit_df_to_save.empty:
-            credit_df_to_save['Bill No'] = credit_df_to_save['Bill No'].astype('Int64')
-        if not due_df_to_save.empty:
-            due_df_to_save['Bill No'] = due_df_to_save['Bill No'].astype('Int64')
-        if not due_collection_df_to_save.empty:
-            due_collection_df_to_save['Bill No'] = due_collection_df_to_save['Bill No'].astype('Int64')
-
-        # Sync files one by one and stop if any fails
-        if not write_file_to_dropbox(dbx, DROPBOX_CREDIT_LOG_PATH, credit_df_to_save.sort_values(by=["Zone", "Bill No"]).to_csv(index=False)): return
-        # NEW: Sort the due list by Bill No before saving
-        if not write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, due_df_to_save.sort_values(by="Bill No").to_csv(index=False)): return
-        if not write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, due_collection_df_to_save.to_csv(index=False)): return
-        if not write_file_to_dropbox(dbx, DROPBOX_DEBIT_LOG_PATH, st.session_state.debit_log_content): return
-
-        st.session_state.is_dirty = False
-    st.success("✅ All changes have been successfully synced to Dropbox!")
-    time.sleep(2)
     st.rerun()
 
 # --- Main Application Logic ---
@@ -242,9 +209,9 @@ def main():
 
     if mode == "User":
         st.title("👥 User Section")
-        credit_df_user = load_credit_data_from_dbx(dbx)
-        user_zone = st.selectbox("Select Zone to View Transactions", ZONES, key="user_zone_select")
-        if st.button("Show Zone Transactions", key="show_user_tx_btn"):
+        credit_df_user = load_credit_data(dbx)
+        user_zone = st.selectbox("Select Zone to View Transactions", ZONES)
+        if st.button("Show Zone Transactions"):
             user_data = credit_df_user[credit_df_user["Zone"] == user_zone]
             if not user_data.empty:
                 st.dataframe(user_data.sort_values(by="Bill No"), use_container_width=True)
@@ -264,14 +231,7 @@ def main():
             st.warning("Admin access required to view panel.")
             st.stop()
 
-        initialize_session_state(dbx)
-
         st.sidebar.title("🛠️ Admin Controls")
-        if st.session_state.get('is_dirty', False):
-            st.sidebar.warning("⚠️ You have unsynced changes.")
-        if st.sidebar.button("💾 Sync to Dropbox", type="primary", use_container_width=True):
-            sync_to_dropbox(dbx)
-            
         selected_zone = st.sidebar.selectbox("Select Zone for Operations", ZONES)
 
         st.title("🛠 Admin Panel")
@@ -281,14 +241,10 @@ def main():
             "Credit & View Transactions", "Update Transaction", "Due Management",
             "Debit Entry", "Summary", "Amount Per Date", "Bill Book Info"
         ])
-        
-        credit_df = st.session_state.credit_df
-        due_df = st.session_state.due_df
-        due_collection_df = st.session_state.due_collection_df
-        debit_log_content = st.session_state.debit_log_content
 
         with credit_tab:
             st.header("Credit Entry & Transactions")
+            credit_df = load_credit_data(dbx)
             st.subheader("➕ Credit Entry")
             next_bill = get_next_bill_no(selected_zone, credit_df)
             with st.form("credit_form", clear_on_submit=True):
@@ -314,15 +270,18 @@ def main():
                             "Due Payment Date": date.strftime("%Y-%m-%d") if calculated_due <= 0 else pd.NA,
                             "Partial Due Payment Date": pd.NA
                         }
-                        st.session_state.credit_df = pd.concat([credit_df, pd.DataFrame([new_row_data])], ignore_index=True)
+                        updated_credit_df = pd.concat([credit_df, pd.DataFrame([new_row_data])], ignore_index=True)
+                        write_file_to_dropbox(dbx, DROPBOX_CREDIT_LOG_PATH, updated_credit_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                         
-                        msg = "✅ Credit entry recorded locally."
+                        msg = "✅ Credit entry recorded."
                         if calculated_due > 0:
+                            due_df = load_due_data(dbx)
                             new_due_row = {"Zone": selected_zone, "Bill No": int(bill_no), "Name": name, "Address": address, "Due Amount": calculated_due}
-                            st.session_state.due_df = pd.concat([due_df, pd.DataFrame([new_due_row])], ignore_index=True)
-                            msg += f" ⚠️ ₹{calculated_due:.2f} due recorded locally."
+                            updated_due_df = pd.concat([due_df, pd.DataFrame([new_due_row])], ignore_index=True)
+                            # MODIFIED: Sort due list before saving
+                            write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, updated_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
+                            msg += f" ⚠️ ₹{calculated_due:.2f} due recorded."
 
-                        st.session_state.is_dirty = True
                         display_message('success', msg)
 
             st.subheader("📋 Show Transactions")
@@ -333,17 +292,18 @@ def main():
                 else:
                     st.info("No transactions yet for this zone.")
             
-            # NEW FEATURE
             if st.button("Show All Credit Bills"):
-                if not credit_df.empty:
-                    st.dataframe(credit_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
+                all_credit_df = load_credit_data(dbx)
+                if not all_credit_df.empty:
+                    st.dataframe(all_credit_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
                 else:
                     st.info("No credit bills have been recorded yet.")
 
         with due_tab:
             st.header("Due Management")
             st.subheader("💸 Update Due List")
-            zone_dues = due_df[(due_df["Zone"] == selected_zone)]
+            current_due_df = load_due_data(dbx)
+            zone_dues = current_due_df[current_due_df["Zone"] == selected_zone]
             bill_options = zone_dues["Bill No"].dropna().astype(int).tolist()
 
             if bill_options:
@@ -359,47 +319,57 @@ def main():
                     
                     if update_btn.form_submit_button("Update Due"):
                         if amt_now > 0:
-                            credit_idx = credit_df[(credit_df["Zone"] == selected_zone) & (credit_df["Bill No"] == selected_bill)].index[0]
-                            original_credit_record = credit_df.loc[credit_idx]
+                            full_credit_df = load_credit_data(dbx)
+                            credit_idx = full_credit_df[(full_credit_df["Zone"] == selected_zone) & (full_credit_df["Bill No"] == selected_bill)].index[0]
+                            original_credit_record = full_credit_df.loc[credit_idx]
                             
-                            credit_df.loc[credit_idx, "Actual Amount Received"] += amt_now
+                            full_credit_df.loc[credit_idx, "Actual Amount Received"] += amt_now
                             remaining_due = round(float(due_record["Due Amount"]) - amt_now, 2)
                             
                             due_collection_log = {
                                 "Zone": selected_zone, "Bill No": selected_bill, "Name": original_credit_record["Name"],
                                 "Address": original_credit_record["Address"], "Amount on Billbook": original_credit_record["Amount on Billbook"],
-                                "Total Amount Received": credit_df.loc[credit_idx, "Actual Amount Received"],
+                                "Total Amount Received": full_credit_df.loc[credit_idx, "Actual Amount Received"],
                                 "Amount Paid Now": amt_now, "Remaining Due": remaining_due,
                                 "Payment Date": payment_date.strftime("%Y-%m-%d")
                             }
 
                             if remaining_due > 0:
-                                credit_df.loc[credit_idx, "Partial Due Payment Date"] = payment_date.strftime("%Y-%m-%d")
-                                credit_df.loc[credit_idx, "Due Payment Date"] = pd.NA
-                                due_list_idx = due_df[(due_df["Zone"] == selected_zone) & (due_df['Bill No'] == selected_bill)].index[0]
-                                due_df.loc[due_list_idx, "Due Amount"] = remaining_due
+                                full_credit_df.loc[credit_idx, "Partial Due Payment Date"] = payment_date.strftime("%Y-%m-%d")
+                                full_credit_df.loc[credit_idx, "Due Payment Date"] = pd.NA
+                                due_list_idx = current_due_df[(current_due_df["Zone"] == selected_zone) & (current_due_df['Bill No'] == selected_bill)].index[0]
+                                current_due_df.loc[due_list_idx, "Due Amount"] = remaining_due
+                                # MODIFIED: Sort due list before saving
+                                write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, current_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                                 due_collection_log["Status"] = "Partially Paid"
                                 msg = f"✅ ₹{amt_now:.2f} received. Remaining: ₹{remaining_due:.2f}"
                             else:
-                                credit_df.loc[credit_idx, "Due Payment Date"] = payment_date.strftime("%Y-%m-%d")
-                                credit_df.loc[credit_idx, "Partial Due Payment Date"] = pd.NA
-                                due_list_idx = due_df[(due_df["Zone"] == selected_zone) & (due_df['Bill No'] == selected_bill)].index[0]
-                                st.session_state.due_df = due_df.drop(due_list_idx)
+                                full_credit_df.loc[credit_idx, "Due Payment Date"] = payment_date.strftime("%Y-%m-%d")
+                                full_credit_df.loc[credit_idx, "Partial Due Payment Date"] = pd.NA
+                                due_list_idx = current_due_df[(current_due_df["Zone"] == selected_zone) & (current_due_df['Bill No'] == selected_bill)].index[0]
+                                current_due_df = current_due_df.drop(due_list_idx)
+                                # MODIFIED: Sort due list before saving
+                                write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, current_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                                 due_collection_log["Status"] = "Fully Paid"
                                 msg = f"✅ ₹{amt_now:.2f} received. Full due paid!"
 
-                            st.session_state.due_collection_df = pd.concat([due_collection_df, pd.DataFrame([due_collection_log])], ignore_index=True)
-                            st.session_state.is_dirty = True
+                            write_file_to_dropbox(dbx, DROPBOX_CREDIT_LOG_PATH, full_credit_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
+                            
+                            due_collection_df = load_due_collection_data(dbx)
+                            updated_due_collection_df = pd.concat([due_collection_df, pd.DataFrame([due_collection_log])], ignore_index=True)
+                            write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, updated_due_collection_df.to_csv(index=False))
+                            
                             display_message('success', msg)
 
                     if cancel_btn.form_submit_button("❌ Cancel Due"):
                         confirm_key = f"confirm_cancel_{selected_bill}"
                         if st.session_state.get(confirm_key, False):
-                            due_list_idx = due_df[(due_df["Zone"] == selected_zone) & (due_df['Bill No'] == selected_bill)].index[0]
-                            st.session_state.due_df = due_df.drop(due_list_idx)
+                            due_list_idx = current_due_df[(current_due_df["Zone"] == selected_zone) & (current_due_df['Bill No'] == selected_bill)].index[0]
+                            current_due_df = current_due_df.drop(due_list_idx)
+                            # MODIFIED: Sort due list before saving
+                            write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, current_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                             st.session_state[confirm_key] = False
-                            st.session_state.is_dirty = True
-                            display_message('success', f"Due for Bill No {selected_bill} has been cancelled locally.")
+                            display_message('success', f"Due for Bill No {selected_bill} has been cancelled.")
                         else:
                             st.session_state[confirm_key] = True
                             st.warning(f"Confirm cancellation for Bill No {selected_bill} by clicking '❌ Cancel Due' again.")
@@ -410,27 +380,30 @@ def main():
             st.subheader("📄 Due Lists")
             show_dues, show_due_collections = st.columns(2)
             if show_dues.button("Show Current Due List"):
-                filtered_dues = due_df[due_df["Zone"] == selected_zone]
+                due_df_display = load_due_data(dbx)
+                filtered_dues = due_df_display[due_df_display["Zone"] == selected_zone]
                 if not filtered_dues.empty:
                     st.dataframe(filtered_dues.sort_values(by="Bill No"), use_container_width=True)
                 else: st.info("No current dues for this zone.")
 
             if show_due_collections.button("Show Due Collection History"):
-                filtered_collections = due_collection_df[due_collection_df["Zone"] == selected_zone]
+                due_collection_df_display = load_due_collection_data(dbx)
+                filtered_collections = due_collection_df_display[due_collection_df_display["Zone"] == selected_zone]
                 if not filtered_collections.empty:
                     st.dataframe(filtered_collections.sort_values(by="Payment Date", ascending=False), use_container_width=True)
                 else: st.info("No collection history yet for this zone.")
             
-            # NEW FEATURE
             if st.button("Show All Due Bills"):
-                if not due_df.empty:
-                    st.dataframe(due_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
+                all_due_df = load_due_data(dbx)
+                if not all_due_df.empty:
+                    st.dataframe(all_due_df.sort_values(by=["Zone", "Bill No"]), use_container_width=True)
                 else:
                     st.info("There are no outstanding due bills.")
 
         with update_tab:
             st.header("Update Transaction")
-            zone_tx_update = credit_df[credit_df["Zone"] == selected_zone]
+            credit_df_update = load_credit_data(dbx)
+            zone_tx_update = credit_df_update[credit_df_update["Zone"] == selected_zone]
             bill_list_update = zone_tx_update["Bill No"].dropna().astype(int).tolist()
 
             if bill_list_update:
@@ -446,41 +419,50 @@ def main():
                     new_date = st.date_input("Date", value=pd.to_datetime(record_to_edit["Date"]).date())
                     
                     if st.form_submit_button("Update Entry"):
-                        credit_idx = credit_df[(credit_df["Zone"] == selected_zone) & (credit_df["Bill No"] == selected_bill_edit)].index[0]
-                        original_record = credit_df.loc[credit_idx].copy()
-                        update_message = f"✅ Bill No {selected_bill_edit} has been updated locally."
+                        full_credit_df = load_credit_data(dbx)
+                        full_due_df = load_due_data(dbx)
+                        full_due_collection_df = load_due_collection_data(dbx)
+                        
+                        credit_idx = full_credit_df[(full_credit_df["Zone"] == selected_zone) & (full_credit_df["Bill No"] == selected_bill_edit)].index[0]
+                        original_record = full_credit_df.loc[credit_idx].copy()
+                        update_message = f"✅ Bill No {selected_bill_edit} has been updated."
 
                         amounts_changed = (float(original_record["Amount on Billbook"]) != new_book) or (float(original_record["Actual Amount Received"]) != new_actual)
                         details_changed = (original_record["Name"] != new_name) or (original_record["Address"] != new_addr)
 
-                        due_collection_indices = due_collection_df[(due_collection_df["Bill No"] == selected_bill_edit) & (due_collection_df["Zone"] == selected_zone)].index
+                        due_collection_indices = full_due_collection_df[(full_due_collection_df["Bill No"] == selected_bill_edit) & (full_due_collection_df["Zone"] == selected_zone)].index
                         if not due_collection_indices.empty:
                             if amounts_changed:
-                                st.session_state.due_collection_df = due_collection_df.drop(due_collection_indices)
+                                full_due_collection_df = full_due_collection_df.drop(due_collection_indices)
+                                write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, full_due_collection_df.to_csv(index=False))
                                 update_message += " ⚠️ Due collection history was cleared due to amount changes."
                             elif details_changed:
-                                due_collection_df.loc[due_collection_indices, ["Name", "Address"]] = [new_name, new_addr]
+                                full_due_collection_df.loc[due_collection_indices, ["Name", "Address"]] = [new_name, new_addr]
+                                write_file_to_dropbox(dbx, DROPBOX_DUE_COLLECTION_PATH, full_due_collection_df.to_csv(index=False))
                                 update_message += " Name/Address updated in due collection history."
 
-                        credit_df.loc[credit_idx, ["Name", "Address", "Amount on Billbook", "Actual Amount Received", "Date"]] = [new_name, new_addr, new_book, new_actual, new_date.strftime("%Y-%m-%d")]
+                        full_credit_df.loc[credit_idx, ["Name", "Address", "Amount on Billbook", "Actual Amount Received", "Date"]] = [new_name, new_addr, new_book, new_actual, new_date.strftime("%Y-%m-%d")]
                         
                         recalculated_due = new_book - new_actual
-                        due_idx = due_df[(due_df["Zone"] == selected_zone) & (due_df["Bill No"] == selected_bill_edit)].index
+                        due_idx = full_due_df[(full_due_df["Zone"] == selected_zone) & (full_due_df["Bill No"] == selected_bill_edit)].index
                         
                         if recalculated_due > 0:
                             if not due_idx.empty:
-                                due_df.loc[due_idx[0], ["Due Amount", "Name", "Address"]] = [recalculated_due, new_name, new_addr]
+                                full_due_df.loc[due_idx[0], ["Due Amount", "Name", "Address"]] = [recalculated_due, new_name, new_addr]
                             else:
                                 new_due_row = {"Zone": selected_zone, "Bill No": selected_bill_edit, "Name": new_name, "Address": new_addr, "Due Amount": recalculated_due}
-                                st.session_state.due_df = pd.concat([due_df, pd.DataFrame([new_due_row])], ignore_index=True)
-                            credit_df.loc[credit_idx, ["Due Payment Date", "Partial Due Payment Date"]] = [pd.NA, pd.NA]
+                                full_due_df = pd.concat([full_due_df, pd.DataFrame([new_due_row])], ignore_index=True)
+                            full_credit_df.loc[credit_idx, ["Due Payment Date", "Partial Due Payment Date"]] = [pd.NA, pd.NA]
                         else:
                             if not due_idx.empty:
-                                st.session_state.due_df = due_df.drop(due_idx)
-                            credit_df.loc[credit_idx, "Due Payment Date"] = new_date.strftime("%Y-%m-%d")
-                            credit_df.loc[credit_idx, "Partial Due Payment Date"] = pd.NA
+                                full_due_df = full_due_df.drop(due_idx)
+                            full_credit_df.loc[credit_idx, "Due Payment Date"] = new_date.strftime("%Y-%m-%d")
+                            full_credit_df.loc[credit_idx, "Partial Due Payment Date"] = pd.NA
                         
-                        st.session_state.is_dirty = True
+                        write_file_to_dropbox(dbx, DROPBOX_CREDIT_LOG_PATH, full_credit_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
+                        # MODIFIED: Sort due list before saving
+                        write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, full_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
+                        
                         display_message('success', update_message)
             else:
                 st.info(f"No transactions available to update for {selected_zone}.")
@@ -493,17 +475,15 @@ def main():
                 debit_date = st.date_input("Date", value=datetime.today())
                 if st.form_submit_button("Submit Debit"):
                     if purpose.strip() and debit_amt >= 0:
-                        debit_line = f"{debit_date.strftime('%Y-%m-%d')} | {int(debit_amt)} | {purpose}\n"
-                        st.session_state.debit_log_content += debit_line
-                        st.session_state.is_dirty = True
-                        display_message('success', "✅ Debit entry saved locally.")
+                        append_to_dropbox_file(dbx, DROPBOX_DEBIT_LOG_PATH, f"{debit_date.strftime('%Y-%m-%d')} | {int(debit_amt)} | {purpose}\n")
+                        display_message('success', "✅ Debit entry saved.")
                     else:
                         display_message('error', "Purpose cannot be empty and amount cannot be negative.")
             
             st.markdown("---")
             st.subheader("Show All Debits")
             if st.button("Show All Debit Transactions"):
-                all_debits, _ = parse_debit_content(debit_log_content)
+                all_debits, _ = load_debit_data(dbx)
                 if all_debits:
                     st.dataframe(pd.DataFrame(all_debits).sort_values(by="Date", ascending=False), use_container_width=True)
                 else:
@@ -511,14 +491,17 @@ def main():
 
         with summary_tab:
             st.header("Financial Summary")
-            summary_zone_choice = st.selectbox("View Summary for Zone", ZONES, key="summary_zone_select")
+            credit_df_summary = load_credit_data(dbx)
+            due_df_summary = load_due_data(dbx)
+            _, total_debit_summary = load_debit_data(dbx)
             
-            _, total_debit_summary = parse_debit_content(debit_log_content)
-            zone_total_credited = credit_df[credit_df["Zone"] == summary_zone_choice]["Actual Amount Received"].sum()
-            due_zone_total = due_df[due_df["Zone"] == summary_zone_choice]["Due Amount"].sum()
-            grand_total_credited = credit_df["Actual Amount Received"].sum()
+            summary_zone_choice = st.selectbox("View Summary for Zone", ZONES)
+            
+            zone_total_credited = credit_df_summary[credit_df_summary["Zone"] == summary_zone_choice]["Actual Amount Received"].sum()
+            due_zone_total = due_df_summary[due_df_summary["Zone"] == summary_zone_choice]["Due Amount"].sum()
+            grand_total_credited = credit_df_summary["Actual Amount Received"].sum()
             total_cash_in_hand = grand_total_credited - total_debit_summary
-            total_due_all = due_df["Due Amount"].sum()
+            total_due_all = due_df_summary["Due Amount"].sum()
 
             st.subheader(f"Totals for {summary_zone_choice.upper()}")
             col1, col2 = st.columns(2)
@@ -535,11 +518,13 @@ def main():
 
         with date_tab:
             st.header("Daily Financial Overview")
+            credit_df_date = load_credit_data(dbx)
+            debit_entries_date, _ = load_debit_data(dbx)
             selected_date = st.date_input("Select Date", value=datetime.today())
             selected_date_str = selected_date.strftime("%Y-%m-%d")
 
             st.subheader(f"Credit Transactions for {selected_date_str}")
-            daily_credit = credit_df[credit_df["Date"] == selected_date_str]
+            daily_credit = credit_df_date[credit_df_date["Date"] == selected_date_str]
             if not daily_credit.empty:
                 st.dataframe(daily_credit, use_container_width=True)
                 st.success(f"Total Credit on this day: ₹{daily_credit['Actual Amount Received'].sum():,.2f}")
@@ -547,8 +532,7 @@ def main():
                 st.info("No credit transactions on this day.")
 
             st.subheader(f"Debit Transactions for {selected_date_str}")
-            all_debits, _ = parse_debit_content(debit_log_content)
-            daily_debits = [e for e in all_debits if e["Date"] == selected_date_str]
+            daily_debits = [e for e in debit_entries_date if e["Date"] == selected_date_str]
             if daily_debits:
                 st.dataframe(pd.DataFrame(daily_debits), use_container_width=True)
                 st.error(f"Total Debit on this day: ₹{sum(e['Amount'] for e in daily_debits):,.2f}")
@@ -557,14 +541,15 @@ def main():
 
         with bill_info_tab:
             st.header("Bill Book Information")
+            credit_df_bill = load_credit_data(dbx)
             search_bill_no = st.number_input("Enter Bill Number to Search", min_value=1, step=1)
             if st.button("Fetch Bill Information"):
-                found_bills = credit_df[credit_df["Bill No"] == search_bill_no]
+                found_bills = credit_df_bill[credit_df_bill["Bill No"] == search_bill_no]
                 if not found_bills.empty:
                     st.success(f"Details for Bill No: {search_bill_no}")
                     st.dataframe(found_bills, use_container_width=True)
                 else:
-                    st.warning(f"No record found for Bill No: {search_bill_no}")
+                    st.info(f"Bill No: {search_bill_no} hasn't been issued yet")
 
 if __name__ == "__main__":
     main()
