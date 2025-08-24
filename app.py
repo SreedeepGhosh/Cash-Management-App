@@ -140,7 +140,6 @@ def initialize_dropbox_files(dbx):
 
 
 # --- Data Loading ---
-@st.cache_data(ttl=300) # Cache data for 5 minutes
 def load_credit_data(_dbx):
     """Loads credit log data from Dropbox."""
     content = read_file_from_dropbox(_dbx, DROPBOX_CREDIT_LOG_PATH)
@@ -153,7 +152,6 @@ def load_credit_data(_dbx):
         return df
     return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Amount on Billbook", "Actual Amount Received", "Date", "Due Payment Date", "Partial Due Payment Date"])
 
-@st.cache_data(ttl=300)
 def load_due_data(_dbx):
     """Loads due list data from Dropbox."""
     content = read_file_from_dropbox(_dbx, DROPBOX_DUE_LIST_PATH)
@@ -164,7 +162,6 @@ def load_due_data(_dbx):
         return df
     return pd.DataFrame(columns=["Zone", "Bill No", "Name", "Address", "Due Amount"])
 
-@st.cache_data(ttl=300)
 def load_debit_data(_dbx):
     """Loads debit log data from Dropbox."""
     total_debit = 0
@@ -183,7 +180,6 @@ def load_debit_data(_dbx):
                     st.warning(f"Skipping malformed debit log entry: {line.strip()}")
     return debit_entries, total_debit
 
-@st.cache_data(ttl=300)
 def load_due_collection_data(_dbx):
     """Loads due collection log data from Dropbox."""
     content = read_file_from_dropbox(_dbx, DROPBOX_DUE_COLLECTION_PATH)
@@ -239,7 +235,6 @@ def main():
                     st.error("The startup password was incorrect.")
         return
 
-    @st.cache_resource
     def get_dbx_client():
         token = st.secrets["DROPBOX_ACCESS_TOKEN"]
         return dropbox.Dropbox(token)
@@ -654,3 +649,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
