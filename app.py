@@ -304,11 +304,11 @@ def main():
             next_bill = get_next_bill_no(selected_zone, credit_df)
             with st.form("credit_form", clear_on_submit=True):
                 st.write(f"Next Bill No for {selected_zone}: `{next_bill or 'N/A'}`")
-                bill_no = st.number_input("Bill No", value=next_bill or 1, min_value=1)
+                bill_no = st.number_input("Bill No", value=next_bill or 1, min_value=1, step=1)
                 name = st.text_input("Name")
                 address = st.text_input("Address")
-                book_amt = st.number_input("Amount on Billbook", min_value=0.0, value=0.0)
-                received_amt = st.number_input("Actual Amount Received", min_value=0.0, value=0.0)
+                book_amt = st.number_input("Amount on Billbook", min_value=0, step=1, value=0)
+                received_amt = st.number_input("Actual Amount Received", min_value=0, step=1, value=0)
                 date = st.date_input("Date", value=datetime.today())
                 if st.form_submit_button("Submit Credit"):
                     if not all([name.strip(), address.strip()]):
@@ -316,10 +316,10 @@ def main():
                     elif credit_df[(credit_df["Zone"] == selected_zone) & (credit_df["Bill No"] == bill_no)].any().any():
                         display_message('error', f"Bill No {bill_no} already exists for {selected_zone}.")
                     else:
-                        calculated_due = book_amt - received_amt
+                        calculated_due = int(book_amt) - int(received_amt)
                         new_row_data = {
                             "Zone": selected_zone, "Bill No": int(bill_no), "Name": name, "Address": address,
-                            "Amount on Billbook": book_amt, "Actual Amount Received": received_amt,
+                            "Amount on Billbook": int(book_amt), "Actual Amount Received": int(received_amt),
                             "Date": date.strftime("%Y-%m-%d"),
                             "Due Payment Date": date.strftime("%Y-%m-%d") if calculated_due <= 0 else pd.NA,
                             "Partial Due Payment Date": pd.NA
@@ -341,7 +341,7 @@ def main():
                             updated_due_df = pd.concat([due_df, new_due_row], ignore_index=True)
                             # Corrected: Sort due list DataFrame
                             write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, updated_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
-                            msg += f" ⚠️ ₹{calculated_due:.2f} due recorded."
+                            msg += f" ⚠️ ₹{calculated_due} due recorded."
                         
                         display_message('success', msg)
 
@@ -366,10 +366,10 @@ def main():
                 
                 if not due_record_series.empty:
                     due_record = due_record_series.iloc[0]
-                    st.write(f"Name: {due_record['Name']} | Address: {due_record.get('Address', 'N/A')} | Current Due: ₹{due_record['Due Amount']:.2f}")
+                    st.write(f"Name: {due_record['Name']} | Address: {due_record.get('Address', 'N/A')} | Current Due: ₹{int(due_record['Due Amount'])}")
 
                     with st.form("update_due_form"):
-                        amt_now = st.number_input("Received Now", min_value=0.0, max_value=float(due_record['Due Amount']), value=0.0)
+                        amt_now = st.number_input("Received Now", min_value=0, max_value=int(due_record['Due Amount']), step=1, value=0)
                         payment_date = st.date_input("Payment Date", value=datetime.today())
                         update_btn, cancel_btn = st.columns(2)
                         
@@ -382,14 +382,14 @@ def main():
                                     credit_idx = credit_idx[0]
                                     original_credit_record = full_credit_df.loc[credit_idx]
                                     
-                                    full_credit_df.loc[credit_idx, "Actual Amount Received"] += amt_now
-                                    remaining_due = round(float(due_record["Due Amount"]) - amt_now, 2)
+                                    full_credit_df.loc[credit_idx, "Actual Amount Received"] += int(amt_now)
+                                    remaining_due = int(due_record["Due Amount"]) - int(amt_now)
                                     
                                     due_collection_log = {
                                         "Zone": selected_zone, "Bill No": selected_bill, "Name": original_credit_record["Name"],
                                         "Address": original_credit_record["Address"], "Amount on Billbook": original_credit_record["Amount on Billbook"],
                                         "Total Amount Received": full_credit_df.loc[credit_idx, "Actual Amount Received"],
-                                        "Amount Paid Now": amt_now, "Remaining Due": remaining_due,
+                                        "Amount Paid Now": int(amt_now), "Remaining Due": remaining_due,
                                         "Payment Date": payment_date.strftime("%Y-%m-%d")
                                     }
 
@@ -402,7 +402,7 @@ def main():
                                         # Corrected: Sort due list DataFrame
                                         write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, current_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                                         due_collection_log["Status"] = "Partially Paid"
-                                        msg = f"✅ ₹{amt_now:.2f} received. Remaining: ₹{remaining_due:.2f}"
+                                        msg = f"✅ ₹{amt_now} received. Remaining: ₹{remaining_due}"
                                     else:
                                         full_credit_df.loc[credit_idx, "Due Payment Date"] = payment_date.strftime("%Y-%m-%d")
                                         full_credit_df.loc[credit_idx, "Partial Due Payment Date"] = pd.NA
@@ -412,7 +412,7 @@ def main():
                                         # Corrected: Sort due list DataFrame
                                         write_file_to_dropbox(dbx, DROPBOX_DUE_LIST_PATH, current_due_df.sort_values(by=["Zone", "Bill No"]).to_csv(index=False))
                                         due_collection_log["Status"] = "Fully Paid"
-                                        msg = f"✅ ₹{amt_now:.2f} received. Full due paid!"
+                                        msg = f"✅ ₹{amt_now} received. Full due paid!"
 
                                     # UPDATED: Sort the DataFrame before saving
                                     write_file_to_dropbox(
@@ -479,8 +479,8 @@ def main():
                         st.write(f"Editing Bill No: **{selected_bill_to_edit}**")
                         new_name = st.text_input("Name", record_to_edit["Name"])
                         new_addr = st.text_input("Address", record_to_edit["Address"])
-                        new_book = st.number_input("Amount on Billbook", value=float(record_to_edit["Amount on Billbook"]), min_value=0.0)
-                        new_actual = st.number_input("Actual Amount Received", value=float(record_to_edit["Actual Amount Received"]), min_value=0.0)
+                        new_book = st.number_input("Amount on Billbook", value=int(record_to_edit["Amount on Billbook"]), min_value=0, step=1)
+                        new_actual = st.number_input("Actual Amount Received", value=int(record_to_edit["Actual Amount Received"]), min_value=0, step=1)
                         
                         try:
                             new_date_obj = pd.to_datetime(record_to_edit["Date"]).date()
@@ -504,8 +504,8 @@ def main():
                                 original_record = full_credit_df.loc[credit_idx].copy()
                                 update_message = f"✅ Bill No {selected_bill_to_edit} has been updated."
 
-                                amounts_changed = (float(original_record["Amount on Billbook"]) != new_book) or \
-                                                  (float(original_record["Actual Amount Received"]) != new_actual)
+                                amounts_changed = (int(original_record["Amount on Billbook"]) != new_book) or \
+                                                  (int(original_record["Actual Amount Received"]) != new_actual)
                                 
                                 details_changed = (original_record["Name"] != new_name) or \
                                                   (original_record["Address"] != new_addr)
@@ -528,11 +528,11 @@ def main():
 
                                 full_credit_df.loc[credit_idx, "Name"] = new_name
                                 full_credit_df.loc[credit_idx, "Address"] = new_addr
-                                full_credit_df.loc[credit_idx, "Amount on Billbook"] = new_book
-                                full_credit_df.loc[credit_idx, "Actual Amount Received"] = new_actual
+                                full_credit_df.loc[credit_idx, "Amount on Billbook"] = int(new_book)
+                                full_credit_df.loc[credit_idx, "Actual Amount Received"] = int(new_actual)
                                 full_credit_df.loc[credit_idx, "Date"] = new_date.strftime("%Y-%m-%d")
 
-                                recalculated_due = new_book - new_actual
+                                recalculated_due = int(new_book) - int(new_actual)
                                 due_idx = full_due_df[
                                     (full_due_df["Zone"] == selected_zone) & 
                                     (full_due_df["Bill No"] == selected_bill_to_edit)
@@ -575,7 +575,7 @@ def main():
             st.header("Debit Entry")
             with st.form("debit_form", clear_on_submit=True):
                 purpose = st.text_input("Purpose")
-                debit_amt = st.number_input("Amount Debited", min_value=0.0, value=0.0)
+                debit_amt = st.number_input("Amount Debited", min_value=0, step=1, value=0)
                 debit_date = st.date_input("Date", value=datetime.today())
                 if st.form_submit_button("Submit Debit"):
                     if purpose.strip() and debit_amt >= 0:
@@ -603,24 +603,24 @@ def main():
             due_df_summary = load_due_data(dbx)
             _, total_debit_summary = load_debit_data(dbx)
 
-            zone_total_credited = credit_df_summary[credit_df_summary["Zone"] == summary_zone_choice]["Actual Amount Received"].sum()
-            due_zone_total = due_df_summary[due_df_summary["Zone"] == summary_zone_choice]["Due Amount"].sum()
-            grand_total_credited = credit_df_summary["Actual Amount Received"].sum()
+            zone_total_credited = int(credit_df_summary[credit_df_summary["Zone"] == summary_zone_choice]["Actual Amount Received"].sum())
+            due_zone_total = int(due_df_summary[due_df_summary["Zone"] == summary_zone_choice]["Due Amount"].sum())
+            grand_total_credited = int(credit_df_summary["Actual Amount Received"].sum())
             total_cash_in_hand = grand_total_credited - total_debit_summary
-            total_due_all = due_df_summary["Due Amount"].sum()
+            total_due_all = int(due_df_summary["Due Amount"].sum())
 
             st.subheader(f"Totals for {summary_zone_choice.upper()}")
             col1, col2 = st.columns(2)
-            col1.info(f"💰 Total Credited: ₹{zone_total_credited:,.2f}")
-            col2.warning(f"⏳ Total Due: ₹{due_zone_total:,.2f}")
+            col1.info(f"💰 Total Credited: ₹{zone_total_credited:,}")
+            col2.warning(f"⏳ Total Due: ₹{due_zone_total:,}")
             
             st.markdown("---")
             st.subheader("🏦 Overall Totals (All Zones)")
             col1, col2, col3, col4 = st.columns(4)
-            col1.success(f"Grand Total Credited\n\n₹{grand_total_credited:,.2f}")
-            col2.error(f"Total Debited\n\n₹{total_debit_summary:,.2f}")
-            col3.info(f"Cash in Hand\n\n₹{total_cash_in_hand:,.2f}")
-            col4.warning(f"Total Dues All Zones\n\n₹{total_due_all:,.2f}")
+            col1.success(f"Grand Total Credited\n\n₹{grand_total_credited:,}")
+            col2.error(f"Total Debited\n\n₹{total_debit_summary:,}")
+            col3.info(f"Cash in Hand\n\n₹{total_cash_in_hand:,}")
+            col4.warning(f"Total Dues All Zones\n\n₹{total_due_all:,}")
 
         with date_tab:
             st.header("Daily Financial Overview")
@@ -633,17 +633,17 @@ def main():
             daily_credit_transactions = credit_df_date[credit_df_date["Date"] == selected_date_str]
 
             if not daily_credit_transactions.empty:
-                grand_total_for_date = 0.0
+                grand_total_for_date = 0
                 for zone in ZONES:
                     zone_daily_tx = daily_credit_transactions[daily_credit_transactions["Zone"] == zone]
                     if not zone_daily_tx.empty:
                         st.markdown(f"#### Zone: {zone.upper()}")
                         st.dataframe(zone_daily_tx, use_container_width=True)
-                        zone_total = zone_daily_tx["Actual Amount Received"].sum()
-                        st.info(f"Total Received for {zone.upper()}: ₹{zone_total:,.2f}")
+                        zone_total = int(zone_daily_tx["Actual Amount Received"].sum())
+                        st.info(f"Total Received for {zone.upper()}: ₹{zone_total:,}")
                         grand_total_for_date += zone_total
                         st.markdown("---")
-                st.success(f"**Grand Total Received on {selected_date_str}: ₹{grand_total_for_date:,.2f}**")
+                st.success(f"**Grand Total Received on {selected_date_str}: ₹{grand_total_for_date:,}**")
             else:
                 st.info(f"No credit transactions found for {selected_date_str}.")
 
@@ -652,14 +652,14 @@ def main():
             if daily_debit_transactions:
                 st.dataframe(pd.DataFrame(daily_debit_transactions), use_container_width=True)
                 daily_debit_sum = sum(e["Amount"] for e in daily_debit_transactions)
-                st.error(f"Total Debited on {selected_date_str}: ₹{daily_debit_sum:,.2f}")
+                st.error(f"Total Debited on {selected_date_str}: ₹{daily_debit_sum:,}")
             else:
                 st.info(f"No debit transactions found for {selected_date_str}.")
 
         with bill_info_tab:
             st.header("Bill Book Information")
             credit_df_bill = load_credit_data(dbx)
-            search_bill_no = st.number_input("Enter Bill Number to Search", min_value=1, value=1, key="search_bill_no_input")
+            search_bill_no = st.number_input("Enter Bill Number to Search", min_value=1, value=1, step=1, key="search_bill_no_input")
             if st.button("Fetch Bill Information", key="fetch_bill_info_btn"):
                 found_bills = credit_df_bill[credit_df_bill["Bill No"] == search_bill_no]
                 if not found_bills.empty:
